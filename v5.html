@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Wayfarer Auto Scanner - Ver5.1 (ハイブリッド完全版)</title>
+    <title>Wayfarer Auto Scanner - Ver5.2 (完全版)</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body { margin: 0; padding: 0; font-family: sans-serif; }
@@ -83,6 +83,7 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
+        // 初期位置（大阪周辺）
         const map = L.map('map').setView([34.710, 135.510], 14);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map);
         const markersGroup = L.layerGroup().addTo(map);
@@ -117,10 +118,13 @@
                     pointToLayer: function (feature, latlng) { return L.marker(latlng, {icon: orangeIcon}); },
                     onEachFeature: function (feature, layer) {
                         countObj.count++;
-                        // 国交省のShapefileは P13_004(名前) や P13_003(種別) という名前になっている対策
-                        const name = feature.properties.name || feature.properties.P13_004 || feature.properties.名称 || "名称不明";
-                        const category = feature.properties.category || feature.properties.P13_003 || feature.properties.種別 || "公園/文化財";
-                        layer.bindPopup(`<b>${name}</b><br><span style="color:#e65100;">🧡 ${category}</span><br><span style="font-size:10px;">出典: 行政オープンデータ</span>`);
+                        
+                        // 🔥🔥🔥 ここが相棒の検証で修正した「完璧な名前・カテゴリ処理」だ！！ 🔥🔥🔥
+                        // P13_003 が名前、P13_004 がカテゴリ（数字コード）に修正済み！
+                        const name = feature.properties.name || feature.properties.P13_003 || feature.properties.名称 || "名称不明";
+                        const category = feature.properties.category || feature.properties.P13_004 || feature.properties.種別 || "公園/文化財";
+                        
+                        layer.bindPopup(`<b>${name}</b><br><span style="color:#e65100;">🧡 種別コード: ${category}</span><br><span style="font-size:10px;">出典: 行政オープンデータ</span>`);
                     }
                 }).addTo(markersGroup);
             } catch (error) {
@@ -145,7 +149,7 @@
                 promises.push(loadAndPlotData('cultural_property_filtered.geojson', bounds, openDataCount));
             }
 
-            // 💙 2. OSMデータ（青ピン）の読み込み（復活！）
+            // 💙 2. OSMデータ（青ピン）の読み込み
             const s = bounds.getSouth(), w = bounds.getWest(), n = bounds.getNorth(), e = bounds.getEast();
             const bbox_osm = `${s},${w},${n},${e}`;
             let osmQueryTags = "";
@@ -177,12 +181,4 @@
         });
 
         document.getElementById('btn-location').addEventListener('click', () => {
-            if (!navigator.geolocation) { alert("位置情報不可"); return; }
-            navigator.geolocation.getCurrentPosition(
-                pos => map.setView([pos.coords.latitude, pos.coords.longitude], 15),
-                () => alert("位置情報取得エラー")
-            );
-        });
-    </script>
-</body>
-</html>
+            if (!navigator
