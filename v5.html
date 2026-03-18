@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Wayfarer Auto Scanner - Ver5.0 (完全版)</title>
+    <title>Wayfarer Auto Scanner - Ver5.1 (ハイブリッド完全版)</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body { margin: 0; padding: 0; font-family: sans-serif; }
@@ -33,7 +33,6 @@
         #btn-location:hover { background-color: #1e7e34; }
         #loading { display: none; color: #d9534f; font-weight: bold; margin-top: 10px; text-align: center; }
 
-        /* 著作権表記（クレジット）のデザイン */
         #credit-footer {
             font-size: 10px; color: #555; margin-top: 10px;
             padding-top: 10px; border-top: 1px solid #ccc; line-height: 1.4;
@@ -53,7 +52,7 @@
         
         <div id="category-area">
             <details class="opendata-section" open>
-                <summary>👑 行政オープンデータ 🧡</summary>
+                <summary>👑 行政オープンデータ（最強） 🧡</summary>
                 <div class="checkbox-list">
                     <label style="color:#e65100; font-weight:bold;">
                         <input type="checkbox" id="chk-parks" checked> 🌳 大阪府：都市公園データ
@@ -93,23 +92,34 @@
             shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
             iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
         });
+        const blueIcon = new L.Icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+            iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+        });
 
-        // データを読み込んでピンを立てる関数
+        // 👑 ローカルファイル読み込み用関数
         async function loadAndPlotData(url, bounds, countObj) {
             try {
                 const response = await fetch(url);
-                if (!response.ok) return; // ファイルが無い場合はスキップ
+                if (!response.ok) return; 
                 const data = await response.json();
                 
                 L.geoJSON(data, {
+                    // ★軽量化処理：画面の中にあるデータだけを処理する！
+                    filter: function(feature) {
+                        if(feature.geometry && feature.geometry.coordinates) {
+                            const latlng = L.latLng(feature.geometry.coordinates[1], feature.geometry.coordinates[0]);
+                            return bounds.contains(latlng);
+                        }
+                        return false;
+                    },
                     pointToLayer: function (feature, latlng) { return L.marker(latlng, {icon: orangeIcon}); },
                     onEachFeature: function (feature, layer) {
-                        if(bounds.contains(layer.getLatLng())) { countObj.count++; }
-                        
-                        // 国交省のデータは属性名が違うことがあるのでカバーする
-                        const name = feature.properties.name || feature.properties.P13_004 || "名称不明";
-                        const category = feature.properties.category || feature.properties.P13_003 || "公園/文化財";
-                        
+                        countObj.count++;
+                        // 国交省のShapefileは P13_004(名前) や P13_003(種別) という名前になっている対策
+                        const name = feature.properties.name || feature.properties.P13_004 || feature.properties.名称 || "名称不明";
+                        const category = feature.properties.category || feature.properties.P13_003 || feature.properties.種別 || "公園/文化財";
                         layer.bindPopup(`<b>${name}</b><br><span style="color:#e65100;">🧡 ${category}</span><br><span style="font-size:10px;">出典: 行政オープンデータ</span>`);
                     }
                 }).addTo(markersGroup);
@@ -121,21 +131,49 @@
         document.getElementById('btn-scan').addEventListener('click', async () => {
             document.getElementById('loading').style.display = "block";
             markersGroup.clearLayers();
+            
             const bounds = map.getBounds();
-            let countObj = { count: 0 };
+            let openDataCount = { count: 0 };
+            let osmCount = 0;
+            const promises = [];
 
-            // 🌳 公園データの読み込み (P13-11_27.json)
+            // 👑 1. 行政データの読み込み
             if (document.getElementById('chk-parks').checked) {
-                await loadAndPlotData('P13-11_27.json', bounds, countObj);
+                promises.push(loadAndPlotData('P13-11_27.json', bounds, openDataCount));
+            }
+            if (document.getElementById('chk-cultural').checked) {
+                promises.push(loadAndPlotData('cultural_property_filtered.geojson', bounds, openDataCount));
             }
 
-            // 🏯 文化財データの読み込み (cultural_property_filtered.geojson)
-            if (document.getElementById('chk-cultural').checked) {
-                await loadAndPlotData('cultural_property_filtered.geojson', bounds, countObj);
+            // 💙 2. OSMデータ（青ピン）の読み込み（復活！）
+            const s = bounds.getSouth(), w = bounds.getWest(), n = bounds.getNorth(), e = bounds.getEast();
+            const bbox_osm = `${s},${w},${n},${e}`;
+            let osmQueryTags = "";
+            document.querySelectorAll('.osm-chk:checked').forEach(chk => {
+                osmQueryTags += chk.value.replaceAll('{bbox}', bbox_osm);
+            });
+
+            if (osmQueryTags !== "") {
+                const osmUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(`[out:json][timeout:25];(${osmQueryTags});out center;`)}`;
+                const osmPromise = fetch(osmUrl).then(res => res.json()).then(data => {
+                    if(data.elements) {
+                        data.elements.forEach(el => {
+                            const lat = el.lat || el.center.lat;
+                            const lon = el.lon || el.center.lon;
+                            const name = el.tags && el.tags.name ? el.tags.name : "名前なしの候補";
+                            L.marker([lat, lon], {icon: blueIcon}).addTo(markersGroup)
+                             .bindPopup(`<b>${name}</b><br><span style="color:blue;">💙 出典: OpenStreetMap</span>`);
+                            osmCount++;
+                        });
+                    }
+                }).catch(err => console.error("OSM Error:", err));
+                promises.push(osmPromise);
             }
+
+            await Promise.allSettled(promises);
 
             document.getElementById('loading').style.display = "none";
-            alert(`スキャン完了！🔥\n・画面内のオープンデータ: ${countObj.count}件発見！`);
+            alert(`スキャン完了！🔥\n・行政データ: ${openDataCount.count}件\n・OSMデータ: ${osmCount}件`);
         });
 
         document.getElementById('btn-location').addEventListener('click', () => {
