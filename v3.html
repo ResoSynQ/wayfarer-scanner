@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wayfarer Auto Scanner - Ver3.0</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin: 0; padding: 0; font-family: sans-serif; }
+        #map { width: 100vw; height: 100vh; }
+        
+        /* コントロールパネルの配置設定 (PC版) */
+        #controls {
+            position: absolute;
+            top: 80px;  
+            left: 10px; 
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            z-index: 1000;
+            width: 320px; 
+            display: flex;
+            flex-direction: column;
+            max-height: calc(100vh - 100px); 
+        }
+
+        #category-area {
+            overflow-y: auto;
+            margin: 10px 0;
+            padding-right: 5px;
+        }
+
+        details {
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-bottom: 5px;
+            padding: 5px;
+        }
+        /* Wikidata用の特別カラー */
+        details.wikidata-section {
+            background: #f3e5f5;
+            border-color: #ce93d8;
+        }
+        summary {
+            font-weight: bold;
+            cursor: pointer;
+            padding: 5px;
+            outline: none;
+        }
+        .checkbox-list {
+            display: flex;
+            flex-direction: column;
+            padding: 5px 10px;
+        }
+        .checkbox-list label {
+            margin: 4px 0;
+            font-size: 14px;
+        }
+
+        button {
+            background-color: #007bff; color: white; border: none;
+            padding: 12px; border-radius: 5px;
+            font-size: 16px; font-weight: bold; cursor: pointer; width: 100%;
+        }
+        button:hover { background-color: #0056b3; }
+        #btn-location { background-color: #28a745; margin-bottom: 5px;}
+        #btn-location:hover { background-color: #1e7e34; }
+        #loading { display: none; color: #d9534f; font-weight: bold; margin-top: 10px; text-align: center; }
+
+        /* スマホ画面の特別ルール */
+        @media (max-width: 600px) {
+            #controls {
+                top: auto;
+                bottom: 10px;
+                left: 50%;
+                transform: translateX(-50%);
+                width: 90%;
+                max-height: 50vh; 
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <div id="controls">
+        <button id="btn-location">📍 現在地の周辺へ移動</button>
+        
+        <div id="category-area">
+            <details class="wikidata-section" open>
+                <summary>🌐 Wikidata (ウィキデータ) 💜</summary>
+                <div class="checkbox-list">
+                    <label style="color:#6a1b9a; font-weight:bold;">
+                        <input type="checkbox" id="chk-wikidata" checked> 
+                        Wikipediaに載っている史跡・施設など
+                    </label>
+                    <span style="font-size:11px; color:gray;">※OSMにないマイナー史跡が見つかるかも！</span>
+                </div>
+            </details>
+
+            <details>
+                <summary>🏛️ 歴史・アート・文化 (OSM) 💙</summary>
+                <div class="checkbox-list">
+                    <label><input type="checkbox" class="osm-chk" value='node["historic"="memorial"]({bbox});node["historic"="monument"]({bbox});' checked> 🪨 記念碑・碑・モニュメント</label>
+                    <label><input type="checkbox" class="osm-chk" value='node["tourism"="artwork"]({bbox});' checked> 🎨 壁画・彫刻・パブリックアート</label>
+                    <label><input type="checkbox" class="osm-chk" value='node["historic"="archaeological_site"]({bbox});node["historic"="ruins"]({bbox});node["historic"="tomb"]({bbox});'> 🏺 史跡・古墳・遺跡</label>
+                </div>
+            </details>
+
+            <details>
+                <summary>🏘️ 公共・コミュニティ (OSM) 💙</summary>
+                <div class="checkbox-list">
+                    <label><input type="checkbox" class="osm-chk" value='node["amenity"="notice_board"]({bbox});' checked> 📋 掲示板</label>
+                    <label><input type="checkbox" class="osm-chk" value='node["amenity"="community_centre"]({bbox});way["amenity"="community_centre"]({bbox});' checked> 🏠 公民館・集会所・コミュニティ</label>
+                    <label><input type="checkbox" class="osm-chk" value='node["tourism"="museum"]({bbox});node["tourism"="gallery"]({bbox});way["tourism"="museum"]({bbox});'> 🏛️ 博物館・美術館・資料館</label>
+                    <label><input type="checkbox" class="osm-chk" value='node["amenity"="public_bookcase"]({bbox});'> 📚 私設図書館・リトルフリーライブラリー</label>
+                </div>
+            </details>
+
+            <details>
+                <summary>🌳 公園・アウトドア (OSM) 💙</summary>
+                <div class="checkbox-list">
+                    <label><input type="checkbox" class="osm-chk" value='node["leisure"="park"]({bbox});way["leisure"="park"]({bbox});node["place"="square"]({bbox});' checked> 🏞️ 公園・広場</label>
+                    <label><input type="checkbox" class="osm-chk" value='node["amenity"="shelter"]({bbox});'> 🛖 東屋・パーゴラ（屋根付き）</label>
+                    <label><input type="checkbox" class="osm-chk" value='node["leisure"="picnic_table"]({bbox});'> 🪑 ピクニックテーブル</label>
+                </div>
+            </details>
+        </div>
+
+        <button id="btn-scan">🔍 ハイブリッド・スキャン開始！</button>
+        <div id="loading">📡 スキャン中... (数秒お待ちください)</div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // 地図の初期設定
+        const map = L.map('map').setView([34.710, 135.510], 15);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        const markersGroup = L.layerGroup().addTo(map);
+
+        // カラーピンの設定
+        const blueIcon = new L.Icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+            iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+        });
+        const violetIcon = new L.Icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-violet.png',
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+            iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+        });
+
+        // 現在地移動
+        document.getElementById('btn-location').addEventListener('click', () => {
+            if (!navigator.geolocation) { alert("位置情報が使えません！"); return; }
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    map.setView([pos.coords.latitude, pos.coords.longitude], 15);
+                    L.circle([pos.coords.latitude, pos.coords.longitude], {radius: 500, color: 'blue'}).addTo(markersGroup);
+                },
+                () => { alert("位置情報を取得できませんでした。"); }
+            );
+        });
+
+        // スキャン実行
+        document.getElementById('btn-scan').addEventListener('click', async () => {
+            const b = map.getBounds();
+            const s = b.getSouth(), w = b.getWest(), n = b.getNorth(), e = b.getEast();
+            const bbox_osm = `${s},${w},${n},${e}`;
+
+            // OSM (Overpass API) のクエリ組み立て
+            let osmQueryTags = "";
+            document.querySelectorAll('.osm-chk:checked').forEach(chk => {
+                osmQueryTags += chk.value.replaceAll('{bbox}', bbox_osm);
+            });
+
+            const runOsm = osmQueryTags !== "";
+            const runWikidata = document.getElementById('chk-wikidata').checked;
+
+            if(!runOsm && !runWikidata) {
+                alert("探したいターゲットを1つ以上チェックしてください！"); return;
+            }
+
+            document.getElementById('loading').style.display = "block";
+            markersGroup.clearLayers();
+
+            let osmCount = 0;
+            let wikiCount = 0;
+            const promises = [];
+
+            // 1. OSMスキャン処理
+            if (runOsm) {
+                const osmUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(`[out:json][timeout:25];(${osmQueryTags});out center;`)}`;
+                const osmPromise = fetch(osmUrl).then(res => res.json()).then(data => {
+                    if(data.elements) {
+                        data.elements.forEach(el => {
+                            const lat = el.lat || el.center.lat;
+                            const lon = el.lon || el.center.lon;
+                            const name = el.tags && el.tags.name ? el.tags.name : "名前なしの候補(OSM)";
+                            L.marker([lat, lon], {icon: blueIcon}).addTo(markersGroup)
+                             .bindPopup(`<b>${name}</b><br><span style="color:blue;">💙 出典: OpenStreetMap</span>`);
+                            osmCount++;
+                        });
+                    }
+                }).catch(err => console.error("OSM Error:", err));
+                promises.push(osmPromise);
+            }
+
+            // 2. Wikidataスキャン処理 (SPARQL)
+            if (runWikidata) {
+                // 画面範囲内の「日本語のラベル」を持つ座標データを取得
+                const sparqlQuery = `
+                    SELECT ?place ?placeLabel ?location WHERE {
+                      SERVICE wikibase:box {
+                        ?place wdt:P625 ?location.
+                        bd:serviceParam wikibase:cornerSouthWest "Point(${w} ${s})"^^geo:wktLiteral.
+                        bd:serviceParam wikibase:cornerNorthEast "Point(${e} ${n})"^^geo:wktLiteral.
+                      }
+                      SERVICE wikibase:label { bd:serviceParam wikibase:language "ja". }
+                      FILTER(LANG(?placeLabel) = "ja")
+                    } LIMIT 200
+                `;
+                const wikiUrl = `https://query.wikidata.org/sparql?query=${encodeURIComponent(sparqlQuery)}&format=json`;
+                const wikiPromise = fetch(wikiUrl).then(res => res.json()).then(data => {
+                    if(data.results && data.results.bindings) {
+                        data.results.bindings.forEach(item => {
+                            // "Point(135.5 34.7)" のような文字列から緯度経度を抽出
+                            const locStr = item.location.value;
+                            const match = locStr.match(/Point\(([^ ]+) ([^ ]+)\)/);
+                            if (match) {
+                                const lon = parseFloat(match[1]);
+                                const lat = parseFloat(match[2]);
+                                const name = item.placeLabel.value;
+                                L.marker([lat, lon], {icon: violetIcon}).addTo(markersGroup)
+                                 .bindPopup(`<b>${name}</b><br><span style="color:purple;">💜 出典: Wikidata</span><br><a href="${item.place.value}" target="_blank">詳細を開く</a>`);
+                                wikiCount++;
+                            }
+                        });
+                    }
+                }).catch(err => console.error("Wikidata Error:", err));
+                promises.push(wikiPromise);
+            }
+
+            // 両方のスキャンが完了するのを待つ
+            await Promise.allSettled(promises);
+            
+            document.getElementById('loading').style.display = "none";
+            if(osmCount === 0 && wikiCount === 0) {
+                alert("この範囲には候補が見つかりませんでした。範囲を広げるか、場所を変えてください！");
+            } else {
+                alert(`スキャン完了！🔥\n・OSM: ${osmCount}件\n・Wikidata: ${wikiCount}件`);
+            }
+        });
+    </script>
+</body>
+</html>
