@@ -1,0 +1,20 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "【テスト】大阪府指定文化財：旧〇〇邸", "category": "指定文化財" },
+      "geometry": { "type": "Point", "coordinates": [135.512, 34.712] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "【テスト】〇〇第1街区公園", "category": "都市公園" },
+      "geometry": { "type": "Point", "coordinates": [135.508, 34.708] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "【テスト】吹田〇〇歴史公園", "category": "都市公園・史跡" },
+      "geometry": { "type": "Point", "coordinates": [135.515, 34.715] }
+    }
+  ]
+}
