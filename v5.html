@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wayfarer Auto Scanner - Ver5.0 (完全版)</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin: 0; padding: 0; font-family: sans-serif; }
+        #map { width: 100vw; height: 100vh; }
+        
+        #controls {
+            position: absolute; top: 80px; left: 10px; 
+            background: rgba(255, 255, 255, 0.95); padding: 15px;
+            border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            z-index: 1000; width: 320px; display: flex; flex-direction: column;
+            max-height: calc(100vh - 100px); 
+        }
+
+        #category-area { overflow-y: auto; margin: 10px 0; padding-right: 5px; }
+        details { background: #f8f9fa; border: 1px solid #ddd; border-radius: 5px; margin-bottom: 5px; padding: 5px; }
+        details.opendata-section { background: #fff3e0; border-color: #ffb74d; }
+        summary { font-weight: bold; cursor: pointer; padding: 5px; outline: none; }
+        .checkbox-list { display: flex; flex-direction: column; padding: 5px 10px; }
+        .checkbox-list label { margin: 4px 0; font-size: 14px; }
+
+        button {
+            background-color: #007bff; color: white; border: none;
+            padding: 12px; border-radius: 5px; font-size: 16px; font-weight: bold; cursor: pointer; width: 100%;
+        }
+        button:hover { background-color: #0056b3; }
+        #btn-location { background-color: #28a745; margin-bottom: 5px;}
+        #btn-location:hover { background-color: #1e7e34; }
+        #loading { display: none; color: #d9534f; font-weight: bold; margin-top: 10px; text-align: center; }
+
+        /* 著作権表記（クレジット）のデザイン */
+        #credit-footer {
+            font-size: 10px; color: #555; margin-top: 10px;
+            padding-top: 10px; border-top: 1px solid #ccc; line-height: 1.4;
+        }
+
+        @media (max-width: 600px) {
+            #controls { top: auto; bottom: 10px; left: 50%; transform: translateX(-50%); width: 90%; max-height: 50vh; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <div id="controls">
+        <button id="btn-location">📍 現在地の周辺へ移動</button>
+        
+        <div id="category-area">
+            <details class="opendata-section" open>
+                <summary>👑 行政オープンデータ（最強） 🧡</summary>
+                <div class="checkbox-list">
+                    <label style="color:#e65100; font-weight:bold;">
+                        <input type="checkbox" id="chk-parks" checked> 🌳 大阪府：都市公園データ
+                    </label>
+                    <label style="color:#e65100; font-weight:bold;">
+                        <input type="checkbox" id="chk-cultural" checked> 🏯 大阪府：指定文化財データ
+                    </label>
+                    <span style="font-size:11px; color:gray;">※美術・工芸品は除外済み！</span>
+                </div>
+            </details>
+
+            <details>
+                <summary>💙 OpenStreetMap (有志データ)</summary>
+                <div class="checkbox-list">
+                    <label><input type="checkbox" class="osm-chk" value='node["historic"="memorial"]({bbox});node["historic"="monument"]({bbox});' checked> 🪨 記念碑・碑・モニュメント</label>
+                    <label><input type="checkbox" class="osm-chk" value='node["amenity"="notice_board"]({bbox});' checked> 📋 掲示板</label>
+                </div>
+            </details>
+        </div>
+
+        <button id="btn-scan">🔍 スキャン開始！</button>
+        <div id="loading">📡 スキャン中... (数秒お待ちください)</div>
+
+        <div id="credit-footer">
+            本アプリは、国土交通省『国土数値情報（都市公園データ）』および、大阪府オープンデータカタログのデータを加工して作成しています。
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        const map = L.map('map').setView([34.710, 135.510], 14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map);
+        const markersGroup = L.layerGroup().addTo(map);
+
+        const orangeIcon = new L.Icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png',
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+            iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+        });
+
+        // データを読み込んでピンを立てる関数
+        async function loadAndPlotData(url, bounds, countObj) {
+            try {
+                const response = await fetch(url);
+                if (!response.ok) return; // ファイルが無い場合はスキップ
+                const data = await response.json();
+                
+                L.geoJSON(data, {
+                    pointToLayer: function (feature, latlng) { return L.marker(latlng, {icon: orangeIcon}); },
+                    onEachFeature: function (feature, layer) {
+                        if(bounds.contains(layer.getLatLng())) { countObj.count++; }
+                        
+                        // 国交省のデータは属性名が違うことがあるのでカバーする
+                        const name = feature.properties.name || feature.properties.P13_004 || "名称不明";
+                        const category = feature.properties.category || feature.properties.P13_003 || "公園/文化財";
+                        
+                        layer.bindPopup(`<b>${name}</b><br><span style="color:#e65100;">🧡 ${category}</span><br><span style="font-size:10px;">出典: 行政オープンデータ</span>`);
+                    }
+                }).addTo(markersGroup);
+            } catch (error) {
+                console.error("読込エラー:", url, error);
+            }
+        }
+
+        document.getElementById('btn-scan').addEventListener('click', async () => {
+            document.getElementById('loading').style.display = "block";
+            markersGroup.clearLayers();
+            const bounds = map.getBounds();
+            let countObj = { count: 0 };
+
+            // 🌳 公園データの読み込み (P13-11_27.json)
+            if (document.getElementById('chk-parks').checked) {
+                await loadAndPlotData('P13-11_27.json', bounds, countObj);
+            }
+
+            // 🏯 文化財データの読み込み (cultural_property_filtered.geojson)
+            if (document.getElementById('chk-cultural').checked) {
+                await loadAndPlotData('cultural_property_filtered.geojson', bounds, countObj);
+            }
+
+            document.getElementById('loading').style.display = "none";
+            alert(`スキャン完了！🔥\n・画面内のオープンデータ: ${countObj.count}件発見！`);
+        });
+
+        document.getElementById('btn-location').addEventListener('click', () => {
+            if (!navigator.geolocation) { alert("位置情報不可"); return; }
+            navigator.geolocation.getCurrentPosition(
+                pos => map.setView([pos.coords.latitude, pos.coords.longitude], 15),
+                () => alert("位置情報取得エラー")
+            );
+        });
+    </script>
+</body>
+</html>
